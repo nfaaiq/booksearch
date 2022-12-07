@@ -4,9 +4,9 @@ const routes = require('express').Router();
 
 let { RECORD_LIMIT } =  require('../constants');
 
+
 routes.get('/fetchBooks', async (req, res) => {  
     
-
     const query = req.query;
 
     let page = (query.page) ? query.page : 1;
@@ -23,6 +23,9 @@ routes.get('/fetchBooks', async (req, res) => {
 
     let author = query?.author;
 
+    let title = query?.title;
+
+    
     let book_table = 'books_book';
     
     let books_language_table = 'books_language';
@@ -30,6 +33,17 @@ routes.get('/fetchBooks', async (req, res) => {
     let books_format_table = 'books_format';
 
     let book_author_table = 'books_author';
+    
+    if(title) {
+
+      title = title.toLowerCase();
+      let tempAr = title.split(",");
+      let tempQr = tempAr.map((title) => `LOWER(title) like '${title}%'`)
+      const title_query = tempQr.join(' or ');
+      book_table =  `(select * from books_book where ${title_query}) as books_book`;
+
+    }
+
     
     if(book_id) {
       book_table =  `(select * from books_book where id='${book_id}') as books_book`
@@ -63,27 +77,28 @@ routes.get('/fetchBooks', async (req, res) => {
       
       author = author.toLowerCase();
 
-      const author_query = " LOWER(books_author.name) like '" + author.split(",").join("%' or  LOWER(books_author.name) like '") + "%'";
+      let tempAr = author.split(",");
+      
+      let tempQr = tempAr.map((author) => `LOWER(books_author.name) like '${author}%'`)
+      
+      let temp_join = tempQr.join(' or ');
 
-      book_author_table = `(select *  from  books_author where (${author_query})) as books_author`;
+      book_author_table =  `(select * from books_author where ${temp_join}) as books_author`;
 
     }
 
-    let subject_filter = '';
     
-    let shelf_filter = '';
+    let topic_where_query = '';
 
     if(topic) {
 
       topic = topic.toLowerCase();
 
-      const subject_query = "LOWER(books_subject.name) like '" + topic.split(",").join("%' or LOWER(books_subject.name) like '") + "%'";
-
-      subject_filter = ` and (${subject_query})`;
-
-      const shelf_query = " LOWER(books_bookshelf.name) like '" + topic.split(",").join("%' or  LOWER(books_bookshelf.name) like '") + "%'";
-
-      shelf_filter = ` and (${shelf_query})`;
+      let tempAr = topic.split(",");
+      
+      let tempQr = tempAr.map((topic) => `LOWER(books_subject.name) like '${topic}%' OR LOWER(books_bookshelf.name)  like '${topic}%'`)
+      
+      topic_where_query = ' AND (' + tempQr.join(' or ') + ')';
 
     }
 
@@ -106,13 +121,13 @@ routes.get('/fetchBooks', async (req, res) => {
               select GROUP_CONCAT(name) from books_subject 
               inner join books_book_subjects 
               on books_subject.id = books_book_subjects.subject_id
-              where books_book_subjects.book_id = books_book.id ${subject_filter}
+              where books_book_subjects.book_id = books_book.id
           ) as book_subjects,
           (
             select GROUP_CONCAT(name) from books_bookshelf 
             inner join books_book_bookshelves 
             on books_bookshelf.id = books_book_bookshelves.bookshelf_id	
-            where books_book_bookshelves.book_id = books_book.id  ${shelf_filter}
+            where books_book_bookshelves.book_id = books_book.id
         ) as book_shelfs,
         (
           select GROUP_CONCAT(
@@ -128,15 +143,15 @@ routes.get('/fetchBooks', async (req, res) => {
         inner join books_book_languages on books_book_languages.book_id = books_book.id
         inner join ${books_language_table} on books_language.id = books_book_languages.language_id
         inner join  books_book_subjects on  books_book_subjects.book_id = books_book.id 
-        inner join  books_subject on  books_subject.id = books_book_subjects.subject_id ${subject_filter}
+        inner join  books_subject on  books_subject.id = books_book_subjects.subject_id 
         inner join books_book_bookshelves on books_book_bookshelves.book_id = books_book.id 
-        inner join books_bookshelf on books_bookshelf.id = books_book_bookshelves.bookshelf_id ${shelf_filter}
+        inner join books_bookshelf on books_bookshelf.id = books_book_bookshelves.bookshelf_id
         inner join ${books_format_table} on  books_format.book_id =  books_book.id
+        where 1 ${topic_where_query}
         order by books_book.id
         limit ${start}, ${RECORD_LIMIT}
     `;
-
-      
+  
       con.query(bookQuery, function(err, books) {
           if(err) {
             console.log(err);
